@@ -1,0 +1,39 @@
+# Minimal worker image to build Flutter source and Android APKs
+# Note: For real CI, prefer a maintained image like cirrusci/flutter
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    FLUTTER_HOME=/opt/flutter \
+    PATH=/opt/flutter/bin:/opt/flutter/bin/cache/dart-sdk/bin:$PATH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl unzip git xz-utils ca-certificates openjdk-17-jdk-headless zip && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Android SDK commandline-tools
+RUN mkdir -p $ANDROID_HOME/cmdline-tools && \
+    curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o /tmp/cmdtools.zip && \
+    unzip -q /tmp/cmdtools.zip -d $ANDROID_HOME/cmdline-tools && \
+    mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest && \
+    rm /tmp/cmdtools.zip
+
+ENV PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+
+# Accept licenses and install platforms/build-tools
+RUN yes | sdkmanager --licenses && \
+    sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+# Install Flutter SDK
+RUN git clone --depth 1 https://github.com/flutter/flutter.git $FLUTTER_HOME && \
+    flutter config --enable-web && \
+    flutter precache --android
+
+WORKDIR /workspace
+
+# Expected usage:
+#  docker build -f Dockerfile.worker -t flutbuilder-worker .
+#  docker run --rm -v $(pwd)/output:/output flutbuilder-worker bash -lc "git clone <app source> app && cd app && flutter pub get && flutter build apk --release && cp build/app/outputs/flutter-apk/app-release.apk /output/app.apk"
+
+

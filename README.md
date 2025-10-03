@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Flutbuilder – SaaS AI Flutter App Builder
+=========================================
 
-## Getting Started
+This is the Next.js monorepo for Flutbuilder, a SaaS that generates fully functional Flutter apps and lets users download full source code or Android APK builds.
 
-First, run the development server:
+Stack
+-----
 
+- Next.js 14 (App Router, TypeScript, Tailwind)
+- Minimal in-memory job queue for prototyping
+- Worker Dockerfile to build Flutter source/APKs
+
+Quick Start
+----------
+
+1. Install deps:
+   ```bash
+   npm install
+   ```
+2. Run dev server:
+   ```bash
+   npm run dev
+   ```
+3. API routes:
+   - Enqueue build: POST `/api/build/enqueue` with body `{ kind: "flutter_source" | "android_apk", appSpecUrl?, appSpecInline? }`
+   - Build status: GET `/api/build/status?id=<jobId>`
+   - List builds: GET `/api/build/list`
+
+Architecture
+-----------
+
+- `src/lib/jobs.ts`: In-memory job store/queue used by API routes.
+- API orchestrates jobs; an external worker (see Dockerfile) would poll and execute builds, then update job records with artifact URLs.
+
+Worker Image (local)
+--------------------
+
+Build a Docker image capable of building Flutter and APKs:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker build -f Dockerfile.worker -t flutbuilder-worker .
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Example usage (mount output dir):
+```bash
+docker run --rm -v $(pwd)/output:/output flutbuilder-worker bash -lc "git clone <app source> app && cd app && flutter pub get && flutter build apk --release && cp build/app/outputs/flutter-apk/app-release.apk /output/app.apk"
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Notes
+-----
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- The current job store is in-memory only; replace with a database/queue for production (e.g., Postgres + BullMQ/Redis).
+- Artifact storage is not implemented; integrate S3/GCS and sign URLs before release.
+- Security/auth is not configured; add auth (e.g., NextAuth, Clerk) before public exposure.
