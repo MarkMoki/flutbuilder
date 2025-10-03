@@ -15,32 +15,34 @@ export async function POST(req: NextRequest) {
     .map(([p, c]) => `FILE: ${p}\n${c.substring(0, 800)}`)
     .join("\n\n---\n\n");
 
-  const system = `You are an AI Flutter code assistant. Given the user's instruction and current workspace context, propose concrete code changes. If a file is selected, return the full revised content for that file. Return a short rationale.`;
+  const system = `You are an AI Flutter code assistant. Given the user's instruction and current workspace context, propose concrete code changes. Prefer returning one or more files in this format:\n\nPATH: <relative-file-path>\n---\n<full file content>\n\nRepeat the block for multiple files. Provide a brief rationale at the end prefixed by RATIONALE:.`;
   const fullPrompt = `${system}\n\nUSER:\n${prompt}\n\nCONTEXT:\n${contextExcerpt}\n\nSELECTED_FILE:${selectedPath ?? "(none)"}`;
 
   try {
     const aiText = await generateFromGemini(fullPrompt);
 
-    // Try to parse a simple directive header like: PATH: lib/main.dart\n---\n<content>
-    const match = aiText.match(/PATH:\s*(.+?)\n[-]{3,}\n([\s\S]*)/);
-    let targetPath = selectedPath ?? undefined;
-    let targetContent: string | undefined = undefined;
-    if (match) {
-      targetPath = match[1].trim();
-      targetContent = match[2];
+    // Parse one or more PATH blocks
+    const blocks = Array.from(aiText.matchAll(/PATH:\s*(.+?)\n[-]{3,}\n([\s\S]*?)(?=\nPATH:|$)/g));
+    const updates: { path: string; content: string }[] = [];
+    if (blocks.length > 0) {
+      for (const b of blocks) {
+        const p = b[1].trim();
+        const c = b[2];
+        workspaceStore.update(sessionId, p, c);
+        updates.push({ path: p, content: c });
+      }
     } else if (selectedPath) {
-      targetPath = selectedPath;
-      targetContent = aiText;
+      workspaceStore.update(sessionId, selectedPath, aiText);
+      updates.push({ path: selectedPath, content: aiText });
     }
 
-    if (targetPath && typeof targetContent === 'string') {
-      workspaceStore.update(sessionId, targetPath, targetContent);
-    }
+    // Extract rationale if present
+    const rationaleMatch = aiText.match(/RATIONALE:\s*([\s\S]*)$/);
+    const rationale = rationaleMatch ? rationaleMatch[1].trim().slice(0, 1000) : aiText.slice(0, 1000);
 
     return NextResponse.json({
-      message: aiText.slice(0, 2000),
-      updatedPath: targetPath,
-      updatedContent: targetContent,
+      message: rationale,
+      updates,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Assist failed" }, { status: 500 });

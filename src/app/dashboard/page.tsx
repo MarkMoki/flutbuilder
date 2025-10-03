@@ -48,6 +48,7 @@ export default function Dashboard() {
   const [files, setFiles] = useState<Record<string, string>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
 
   const codeTree = useMemo(() => {
     const base: any[] = [
@@ -184,20 +185,31 @@ export default function Dashboard() {
         </div>
 
         <BottomChat
-          disabled={false}
+          disabled={chatBusy}
           onSend={async (m) => {
             setMessages((msgs) => [...msgs, { role: "user", text: m }]);
-            const res = await fetch("/api/ai/assist", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ sessionId: buildId ?? "draft", prompt: m, selectedPath }),
-            });
-            const data = await res.json();
-            if (data.updatedPath && data.updatedContent) {
-              setFiles((f) => ({ ...f, [data.updatedPath]: data.updatedContent }));
-              setSelectedPath(data.updatedPath);
+            setChatBusy(true);
+            try {
+              const res = await fetch("/api/ai/assist", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ sessionId: buildId ?? "draft", prompt: m, selectedPath }),
+              });
+              const data = await res.json();
+              const updates: { path: string; content: string }[] = data.updates || [];
+              if (updates.length > 0) {
+                setFiles((f) => {
+                  const next = { ...f } as any;
+                  for (const u of updates) next[u.path] = u.content;
+                  return next;
+                });
+                // Focus the first updated file
+                setSelectedPath(updates[0].path);
+              }
+              if (data.message) setMessages((msgs) => [...msgs, { role: "assistant", text: data.message }]);
+            } finally {
+              setChatBusy(false);
             }
-            if (data.message) setMessages((msgs) => [...msgs, { role: "assistant", text: data.message }]);
           }}
         />
       </div>
