@@ -1,15 +1,11 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   eslint: {
-    // 🚀 Skip ESLint during builds — prevents lint/type errors from blocking deploys
     ignoreDuringBuilds: true,
   },
   typescript: {
-    // ⚙️ Allow builds even if TS finds type issues
     ignoreBuildErrors: true,
   },
-
   async headers() {
     return [
       {
@@ -30,4 +26,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
