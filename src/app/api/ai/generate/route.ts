@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateFromGemini } from "@/lib/gemini";
+import { generateText } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const prompt: string = body?.prompt ?? "";
+  const provider = typeof body?.provider === "string" ? body.provider : undefined;
   if (!prompt) return NextResponse.json({ error: "Missing prompt" }, { status: 400 });
   try {
-    const text = await generateFromGemini(prompt);
+    const text = await generateText(prompt, { provider });
     return NextResponse.json({ text });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Gemini failed" }, { status: 500 });
+    return NextResponse.json({ error: e?.message ?? "AI failed" }, { status: 500 });
   }
 }
 

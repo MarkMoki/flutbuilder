@@ -36,6 +36,29 @@ export default function BuilderTabs({
   onChangeFile?: (content: string) => void;
 }) {
   const [tab, setTab] = useState<"preview" | "code">("preview");
+  const [fileFilter, setFileFilter] = useState("");
+
+  function filterNodes(nodes: CodeNode[], term: string): CodeNode[] {
+    if (!term) return nodes;
+    const t = term.toLowerCase();
+    const walk = (list: CodeNode[]): CodeNode[] =>
+      list
+        .map((n) => {
+          const name = n.name.toLowerCase();
+          if (n.type === "dir") {
+            const children = n.children ? walk(n.children) : [];
+            if (children.length > 0 || name.includes(t)) {
+              return { ...n, children } as CodeNode;
+            }
+            return null as any;
+          } else {
+            return name.includes(t) ? n : (null as any);
+          }
+        })
+        .filter(Boolean) as CodeNode[];
+    return walk(nodes);
+  }
+  const filteredTree = filterNodes(codeTree, fileFilter);
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-3">
       <div className="flex items-center gap-2 mb-3">
@@ -60,11 +83,22 @@ export default function BuilderTabs({
         ) : (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-h-[420px] overflow-auto pr-2 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              {codeTree.map((n) => (
-                <div key={n.name}>
-                  <CodeTree node={n} onSelect={onSelectFile} />
-                </div>
-              ))}
+              <input
+                aria-label="Filter files"
+                className="w-full mb-2 px-2 py-1 rounded bg-black/30 border border-white/10 text-sm"
+                placeholder="Filter files..."
+                value={fileFilter}
+                onChange={(e) => setFileFilter(e.target.value)}
+              />
+              {filteredTree.length === 0 ? (
+                <div className="text-xs opacity-60">No files match.</div>
+              ) : (
+                filteredTree.map((n) => (
+                  <div key={n.name}>
+                    <CodeTree node={n} onSelect={onSelectFile} />
+                  </div>
+                ))
+              )}
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 p-2">
               <div className="text-xs opacity-70 mb-1">{selectedPath || "Select a file"}</div>

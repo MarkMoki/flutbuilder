@@ -49,6 +49,8 @@ export default function Dashboard() {
   const [isRunning, setIsRunning] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validation, setValidation] = useState<any | null>(null);
 
   const codeTree = useMemo(() => {
     const base: any[] = [
@@ -80,6 +82,27 @@ export default function Dashboard() {
   useEffect(() => {
     initWorkspace();
   }, [spec.pages]);
+
+  // Persist basic session state
+  useEffect(() => {
+    try {
+      localStorage.setItem('flutbuilder_spec', JSON.stringify(spec));
+      if (buildId) localStorage.setItem('flutbuilder_buildId', buildId);
+      if (selectedPath) localStorage.setItem('flutbuilder_selectedPath', selectedPath);
+    } catch {}
+  }, [spec, buildId, selectedPath]);
+
+  useEffect(() => {
+    try {
+      const rawSpec = localStorage.getItem('flutbuilder_spec');
+      if (rawSpec) setSpec(JSON.parse(rawSpec));
+      const bid = localStorage.getItem('flutbuilder_buildId');
+      if (bid) setBuildId(bid);
+      const sel = localStorage.getItem('flutbuilder_selectedPath');
+      if (sel) setSelectedPath(sel);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -125,6 +148,39 @@ export default function Dashboard() {
                 <label className="text-sm">Pages (comma separated)</label>
                 <input className="w-full px-3 py-2 rounded bg-black/20 border border-white/10" placeholder="home, settings, profile" value={spec.pages} onChange={e => setSpec(s => ({ ...s, pages: e.target.value }))} />
               </div>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  className="rounded border border-white/20 px-3 py-2 text-sm"
+                  onClick={async () => {
+                    if (!spec.description) return;
+                    const res = await fetch('/api/ai/plan', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ description: spec.description, category: spec.category }) });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const plan = data.plan || {};
+                    setSpec(s => ({ ...s, appName: plan.appName || s.appName, pages: Array.isArray(plan.pages) ? plan.pages.join(', ') : s.pages }));
+                  }}
+                >AI Plan</button>
+                <button
+                  type="button"
+                  className="rounded border border-white/20 px-3 py-2 text-sm"
+                  onClick={async () => {
+                    setValidating(true);
+                    setValidation(null);
+                    try {
+                      const res = await fetch(`/api/workspace/validate?sessionId=${buildId ?? 'draft'}`);
+                      const data = await res.json();
+                      setValidation(data);
+                    } finally {
+                      setValidating(false);
+                    }
+                  }}
+                >{validating ? 'Validating…' : 'Validate'}</button>
+                <a
+                  className="rounded border border-white/20 px-3 py-2 text-sm"
+                  href={`/api/workspace/zip?sessionId=${buildId ?? 'draft'}`}
+                >Download Source</a>
+              </div>
               <button className="w-full rounded bg-foreground text-background py-2 font-semibold">Start build</button>
               {buildId && <p className="text-sm">Build: {buildId} — {buildStatus?.status ?? "queued"}</p>}
             </form>
@@ -165,6 +221,29 @@ export default function Dashboard() {
                 });
               }}
             />
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded border border-white/20 px-3 py-2 text-sm"
+                onClick={async () => {
+                  if (!selectedPath) return;
+                  const res = await fetch('/api/ai/explain', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: buildId ?? 'draft', path: selectedPath }) });
+                  const data = await res.json();
+                  if (data.explanation) setMessages((msgs) => [...msgs, { role: 'assistant', text: `Explanation for ${selectedPath}:\n\n${data.explanation}` }]);
+                }}
+              >Explain file</button>
+              <button
+                className="rounded border border-white/20 px-3 py-2 text-sm"
+                onClick={async () => {
+                  if (!selectedPath) return;
+                  const res = await fetch('/api/ai/tests', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: buildId ?? 'draft', path: selectedPath }) });
+                  const data = await res.json();
+                  if (data.path && data.content) {
+                    setFiles((f) => ({ ...f, [data.path]: data.content }));
+                    setSelectedPath(data.path);
+                  }
+                }}
+              >Generate test</button>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <ChatHistory messages={messages} />
               {buildStatus?.status === "succeeded" && (
@@ -180,6 +259,23 @@ export default function Dashboard() {
             )}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl p-4 bg-white/5 border border-white/10">
               <p className="text-sm text-white/80">Suggestions: Try starting with 3-5 pages. Keep workflows concise. You can refine and regenerate the code anytime, then export APK.</p>
+              {validation && (
+                <div className="mt-3 text-xs space-y-2">
+                  <div className="font-semibold">Validation</div>
+                  {validation?.analyze?.issues?.length > 0 ? (
+                    <ul className="list-disc pl-5">
+                      {validation.analyze.issues.map((i: any, idx: number) => (
+                        <li key={idx} className={i.level === 'error' ? 'text-red-300' : i.level === 'warning' ? 'text-yellow-300' : 'text-white/80'}>
+                          {i.file ? `${i.file}:${i.line}:${i.column} — ` : ''}{i.level?.toUpperCase?.()}: {i.message} {i.code ? `(${i.code})` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div>No analyzer issues.</div>
+                  )}
+                  <div className="pt-2">Tests: {validation?.test?.passed ? 'Passed' : 'Check output'}</div>
+                </div>
+              )}
             </motion.div>
           </div>
         </div>
